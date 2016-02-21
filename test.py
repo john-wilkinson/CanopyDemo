@@ -1,5 +1,5 @@
 import canopy.autoload
-from vendor.library import thing
+from vendor import library
 
 print "speaking!"
-thing.speak()
+library.thing.speak()
