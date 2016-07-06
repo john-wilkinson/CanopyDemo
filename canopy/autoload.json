@@ -1,5 +1,6 @@
 {
   "my_vendor": {
-    "my_package": "my_vendor/my_package/src"
+    "my_package": "my_vendor/my_package/src",
+    "my_package2": "my_vendor/my_package2/src"
   }
 }

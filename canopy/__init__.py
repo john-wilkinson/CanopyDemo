@@ -3,6 +3,7 @@ import sys
 import imp
 import json
 import os
+import types
 
 
 class CanopyFinder(object):
@@ -14,8 +15,10 @@ class CanopyFinder(object):
         with open(os.path.join(self.__location, 'autoload.json')) as data:
             self.__packages = json.load(data)
 
+        self.__loaded = {}
+
     def find_module(self, fullname, path=None):
-        print("--- find ---")
+        print("--- finding {} ---".format(fullname))
         segments = fullname.split('.')
 
         vendor = segments[0]
@@ -31,10 +34,9 @@ class CanopyFinder(object):
             return self
 
         source = self.__packages[vendor][package]
-        for i in range(2, len(segments)):
-            remainder = '/'.join(segments[i:])
-            if not os.path.exists(os.join(source, remainder)):
-                return None
+        suffix = '/'.join(segments[2:])
+        if not os.path.exists(os.path.join(self.__location, source, suffix)):
+            return None
 
         return self
 
@@ -43,54 +45,62 @@ class CanopyFinder(object):
             return sys.modules[fullname]
         except KeyError:
             pass
-        segments = fullname.split('.')
 
+        if fullname in self.__loaded:
+            print('    - {} is already loaded'.format(fullname))
+            return self.__loaded[fullname]
+
+        print("--- loading {} ---".format(fullname))
+
+        segments = fullname.split('.')
         size = len(segments)
 
-        vendor = segments[0]
-        if size == 1:
-            return self.make_vendor(vendor)
-
-        package = segments[1]
-        if size == 2:
-            return self.make_package(vendor, package)
-
-        prefix = '.'.join(segments[:2])
-        path = os.path.join(self.__packages[vendor][package], os.sep.join(segments[2:]))
-        return self.load_path(prefix, path)
-
-    def make_vendor(self, name):
-        v_module = self.make_module(name, os.path.join(self.__location, name))
-
-        for package in self.__packages[name]:
-            setattr(v_module, package, self.make_package(name, package))
-        return v_module
-
-    def make_package(self, vendor, name):
-        source = os.path.join(self.__packages[vendor][name])
-        p_module = self.load_path('.'.join((vendor, name)), source)
-        return p_module
-
-    def make_module(self, name, path):
-        m = imp.new_module(path)
-        m.__name__ = name
-        m.__file__ = path
-        m.__path__ = []
-        m.__loader__ = self
-        return m
-
-    def load_path(self, name, path):
-        abs_path = os.path.join(self.__location, path)
-        if os.path.isfile(abs_path):
-            name = os.path.splitext(name)[0]
-            m = imp.load_source(name, abs_path)
+        if size < 3:
+            path = os.sep.join(segments)
+            m = self.create_module(fullname, path)
+            print('created module {}'.format(m))
         else:
-            m = self.make_module(name, abs_path)
-            for file in [f for f in os.listdir(abs_path) if not f.endswith('.pyc')]:
-                file = os.path.basename(file)
-                attr = os.path.splitext(file)[0]
-                setattr(m, attr, self.load_path('.'.join((name, file)), os.path.join(path, file)))
+            vendor = segments[0]
+            package = segments[1]
+            path = os.path.join(self.__packages[vendor][package], os.sep.join(segments[2:]))
+            m = self.create_module(fullname, path)
+        self.__loaded[fullname] = m
         return m
+
+    def create_module(self, name, path):
+        abs_path = os.path.join(self.__location, path)
+        file = abs_path + '.py'
+        # print('is {} a file?'.format(file))
+        if os.path.isfile(file):
+            # print('yes!')
+            m = imp.load_source(name, file)
+        elif os.path.exists(abs_path):
+            # print('no.')
+            m = CanopyModule(path)
+            m.__name__ = name
+            m.__file__ = abs_path
+            m.__path__ = []
+            m.__loader__ = self
+        else:
+            raise ImportError('Could not find package {}'.format(name))
+        return m
+
+
+class CanopyModule(types.ModuleType):
+    def __init__(self, path):
+        self.__path__ = path
+        self.__name__ = None
+        self.__loader__ = None
+
+    def __getattr__(self, item):
+        print('resolving {}'.format(item))
+        try:
+            module = self.__loader__.load_module('.'.join((self.__name__, item)))
+            setattr(self, item, module)
+            return module
+        except ImportError as e:
+            raise AttributeError('Module {} does not contain attribute {}'.format(self.__name__, item))
+
 
 print("--- init ---")
 __path__ = []
