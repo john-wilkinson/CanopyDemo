@@ -64,6 +64,12 @@ class CanopyFinder(object):
             package = segments[1]
             path = os.path.join(self.__packages[vendor][package], os.sep.join(segments[2:]))
             m = self.create_module(fullname, path)
+
+        attr = segments.pop()
+        parent = '.'.join(segments)
+
+        self.attach(parent, attr, m)
+
         self.__loaded[fullname] = m
         return m
 
@@ -85,6 +91,21 @@ class CanopyFinder(object):
             raise ImportError('Could not find package {}'.format(name))
         return m
 
+    def attach(self, parent, attr, m):
+        if parent and parent in self.__loaded:
+            parent_m = self.__loaded[parent]
+            setattr(parent_m, attr, m)
+
+        children = [child for child in self.__loaded if self.is_child(parent + '.' + attr, child)]
+
+        for name in children:
+            child = self.__loaded[name]
+            attr = name.split('.').pop()
+            setattr(m, attr, child)
+
+    def is_child(self, parent, child):
+        return child.startswith(parent) and '.' not in child.lstrip(parent)
+
 
 class CanopyModule(types.ModuleType):
     def __init__(self, path):
@@ -96,7 +117,6 @@ class CanopyModule(types.ModuleType):
         print('resolving {}'.format(item))
         try:
             module = self.__loader__.load_module('.'.join((self.__name__, item)))
-            setattr(self, item, module)
             return module
         except ImportError as e:
             raise AttributeError('Module {} does not contain attribute {}'.format(self.__name__, item))
